@@ -25,8 +25,9 @@ export class ScrapingService {
       const children: Array<ElementHandle<HTMLDivElement>> = await parent.$$(`div[data-testid='cellInnerDiv']`);
 
       for (const child of children) {
-        const tweetChild = await child.$('div > article > div > div > div:nth-child(2)');
+        const tweetChild = await child.$('div > article > div > div > div');
         const tweetChildren = await tweetChild.$$('div');
+        console.log(tweetChildren)
         for (const i in tweetChildren) {
           const tweetText = await tweetChildren[i].evaluate(node => node.textContent);
           console.log('Text of element:', tweetText);

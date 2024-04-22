@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import puppeteer, { ElementHandle, Page } from 'puppeteer';
 import { PrismaService } from 'src/prisma/prisma.service';
+import { TweetDto } from './dto/tweet.dto';
 
 @Injectable()
 export class ScrapingService {
@@ -10,12 +11,11 @@ export class ScrapingService {
   constructor(private prisma: PrismaService, private configService: ConfigService) { }
 
   // @Cron(CronExpression.EVERY_HOUR)
-  async scrapePosts() {
+  async scrapTweets() {
     let browser = null
-    const scrappedTweets = []
+    const scrappedTweets: Array<TweetDto> = []
     try {
-      console.log('Scraping posts...')
-
+      console.log('Scraping tweets...')
       browser = await puppeteer.launch({ headless: false });
       const page: Page = await browser.newPage();
       await page.goto(this.configService.get<string>("COINDESK_URL"), { waitUntil: 'domcontentloaded' });
@@ -31,42 +31,85 @@ export class ScrapingService {
         }
         const children: Array<ElementHandle<HTMLDivElement>> = await parent.$$(`div[data-testid='cellInnerDiv']`);
         for (const child of children) {
-          const tweetUserName = await child.$("div[data-testid='User-Name']");
-          const tweetText = await child.$("div[data-testid='tweetText']");
-          const tweetImage = await child.$('div[data-testid="tweetPhoto"] > img');
-          const retweets = (await child.$("div[data-testid='retweet']")).evaluate(node => node.textContent || 0)
-          const replies = (await child.$("div[data-testid='reply']")).evaluate(node => node.textContent || 0)
-          const likes = (await child.$("div[data-testid='like']")).evaluate(node => node.textContent || 0)
-          const article = (await child.$("article[data-testid='tweet']"))
+          const tweetUserName = await (await child.$("div[data-testid='User-Name']")).evaluate(node => node.textContent);
+          const tweetText = await (await child.$("div[data-testid='tweetText']")).evaluate(node => node.textContent);
+          const retweets = await (await child.$("div[data-testid='retweet']")).evaluate(node => node.textContent)
+          const replies = await (await child.$("div[data-testid='reply']")).evaluate(node => node.textContent)
+          const likes = await (await child.$("div[data-testid='like']")).evaluate(node => node.textContent)
+          const article = await (await child.$("article[data-testid='tweet']"))
           const viewSelector = 'div > div:nth-child(2) > div:nth-child(2) > div:nth-child(4) > div > div > div:nth-child(4) > a > div > div:nth-child(2)> span'
           const views = await article.$eval(viewSelector, node => node.textContent) //data test id is not available
+          const tweetImage = await child.$('div[data-testid="tweetPhoto"] > img');
+          const tweetVideo = await child.$('data-testid="videoComponent"] > video');
+          const tweetDto = new TweetDto()
+          if (tweetVideo) {
+            const tweetVideoSource = await tweetVideo.$('source');
+            const tweetVideoUrl = await tweetVideoSource.evaluate(node => node.getAttribute('src'));
+            const tweetVideoType = await tweetVideoSource.evaluate(node => node.getAttribute('type')); //ujse later
+            tweetDto.tweetVideo = tweetVideoUrl
+          }
+
+          tweetDto.likes = likes
+          tweetDto.replies = replies
+          tweetDto.tweetUserName = tweetUserName
+          tweetDto.tweetText = tweetText
+          tweetDto.views = views
+
+          if (tweetImage) {
+            tweetDto.tweetImage = await tweetImage.evaluate(node => node.getAttribute('src'));
+          }
+
           console.log("tweetUserName", tweetUserName)
           console.log("tweetText", tweetText)
           console.log("tweetImage", tweetImage)
-          console.log("tweetImage", retweets)
-          console.log("tweetImage", replies)
-          console.log("tweetImage", likes)
           console.log("views", views)
+          scrappedTweets.push(tweetDto)
         }
-
-        // await browser.close();
-        console.log("browswer closed")
-        // Process and save each post to the database
-        // for (const post of posts) {
-        //   await this.prisma.post.create({
-        //     data: {
-        //       text: post.text,
-        //       images: { create: { url: post.image || '' } },
-        //       videos: { create: { url: post.video || '' } }
-        //     }
-        //   });
-        // }
+        console.log("browswer closed.")
       }
     }
     catch (error) {
       console.error(error)
-      await browser.close()
     }
+    finally {
+      if (browser) {
+        await browser.close()
+      }
+      if (scrappedTweets.length > 0) {
+        await this.saveTweets(scrappedTweets)
+      }
+    }
+  }
+
+  private async saveTweets(tweets: Array<TweetDto>) {
+    await this.prisma.tweet.createMany({
+      data: tweets.map(tweet => {
+        return {
+          tweetUserName: tweet.tweetUserName,
+          tweetText: tweet.tweetText,
+          retweets: tweet.retweets,
+          replies: tweet.replies,
+          likes: tweet.likes,
+          views: tweet.views,
+          tweetImage: tweet.tweetImage,
+          tweetVideo: tweet.tweetVideo
+        }
+      })
+    })
+    console.log("bulkInsert", "inserted tweets")
+  }
+
+  private async saveForNotificataion(tweets: Array<TweetDto>) {
+    const userNamesToFetch = tweets.filter(tweet => tweet.tweetVideo || false).map(tweet => tweet.tweetUserName)
+    const tweetsToNotify = await this.prisma.tweet.findMany({
+      where: {
+        tweetUserName: {
+          in: userNamesToFetch
+        }
+      }
+    })
+    console.log("tweetsToNotify", tweetsToNotify)
+    // await this.prisma.videoNotification.createMany({ data: tweetsToNotify.map(tweet => { return { tweetId: tweet.id } }) })
   }
 }
 

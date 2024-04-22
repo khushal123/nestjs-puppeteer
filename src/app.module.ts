@@ -3,16 +3,15 @@ import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { PrismaModule } from './prisma/prisma.module';
 import { ScrapingModule } from './scraping/scraping.module';
-import { PostService } from './post/post.service';
-import { PostModule } from './post/post.module';
 import { ScheduleModule } from '@nestjs/schedule';
 import { ConfigModule } from '@nestjs/config';
+import { TweetModule } from './tweet/tweet.module';
 
 @Module({
-  imports: [PrismaModule, ScrapingModule, PostModule, ScheduleModule.forRoot(), ConfigModule.forRoot(
+  imports: [PrismaModule, ScrapingModule, TweetModule, ScheduleModule.forRoot(), ConfigModule.forRoot(
     { isGlobal: true, }
   )],
   controllers: [AppController],
-  providers: [AppService, PostService],
+  providers: [AppService],
 })
 export class AppModule { }

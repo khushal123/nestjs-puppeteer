@@ -9,9 +9,6 @@ export class PostEntityDto {
     @MinLength(10, {
         message: 'The text must be at least 10 characters long.',
     })
-    @MaxLength(280, {
-        message: 'The text must not exceed 280 characters.',
-    })
     text: string;
 
     @IsString()
